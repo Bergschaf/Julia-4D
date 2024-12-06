@@ -1,0 +1,114 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+RWTexture2D<float4> Result;
+
+float4 qmul(float4 q1, float4 q2)
+{
+    return float4(q1.x * q2.x - q1.y * q2.y - q1.z * q2.z - q1.w * q2.w,
+                  q1.x * q2.y + q1.y * q2.x + q1.z * q2.w - q1.w * q2.z,
+                  q1.x * q2.z - q1.y * q2.w + q1.z * q2.x + q1.w * q2.y,
+                  q1.x * q2.w + q1.y * q2.z - q1.z * q2.y + q1.w * q2.x);
+}
+float3 cross(float3 a, float3 b)
+{
+    return float3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
+}
+
+
+float4 C;
+
+float3 CameraPosition;
+float3 CameraForward;
+float3 CameraUp;
+int Width;
+int Height;
+
+float SDF(float3 position)
+{
+    float3 ballPos = float3(0, 0, 0);
+    return length(position - ballPos) - 0.5;
+}
+
+float Julia_SDF(float3 position)
+{
+    int maxIterations = 50;
+    float4 z_n = float4(position, 0);
+    float4 d_z_n = 1; // Derivative of z_n
+    float z_n_squared = dot(z_n, z_n);
+    for (int i = 0; i <maxIterations; i++)
+    {
+        d_z_n *= 4 * z_n_squared;
+        z_n = qmul(z_n,z_n) + C;
+        z_n_squared = dot(z_n, z_n);
+        if (z_n_squared > 1e15)
+        {
+            break;
+        }
+
+    }
+    return sqrt(z_n_squared / d_z_n) * log(z_n_squared) * 0.5;
+}
+
+float SDF_Plane(float3 position)
+{
+    return position.y;
+}
+
+float Julia_cut(float3 position)
+{
+    return max(Julia_SDF(position), SDF_Plane(position));
+}
+
+float4 raymarch(float3 position, float3 direction)
+{
+    float3 orgPos = position;
+    int maxSteps = 100;
+    float minDistance = 0.001;
+    float maxDistance = 10000.0;
+    float dist = Julia_cut(position);
+    for (int i = 0; i < maxSteps; i++)
+    {
+        position += dist * direction * 0.5;
+        dist = Julia_cut(position);
+
+        if (dist < minDistance || dist > maxDistance)
+        {
+            break;
+        }
+    }
+    if (dist <= minDistance)
+    {
+        return float4(abs(position), 1);
+        //return length(orgPos -position) / 4;
+    }
+    if (dist >= maxDistance)
+    {
+        return float4(0, 0, 0, 1);
+    }
+    return float4(0, 0, 0, 1);
+}
+
+float3 rayDirection(float2 id)
+{
+    CameraForward = normalize(CameraForward);
+    CameraUp = normalize(CameraUp);
+    float3 right = normalize(cross(CameraForward, CameraUp));
+    float3 up = normalize(cross(right, CameraForward));
+    if (Width == 0 || Height == 0)
+    {
+        return float3(0, 0, 0);
+    }
+    float aspectRatio = Width / Height;
+    float3 rayDirection = normalize(CameraForward + ((id.x / Width - 0.5) * 0.5) * right * aspectRatio + (id.y / Height - 0.5) * 0.5 * up);
+    return rayDirection;
+}
+
+
+[numthreads(8,8,1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    Result[id.xy] =  raymarch(CameraPosition, rayDirection(id));
+}

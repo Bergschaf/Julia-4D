@@ -12,6 +12,11 @@ float4 qmul(float4 q1, float4 q2)
                   q1.x * q2.z - q1.y * q2.w + q1.z * q2.x + q1.w * q2.y,
                   q1.x * q2.w + q1.y * q2.z - q1.z * q2.y + q1.w * q2.x);
 }
+float4 qconj(float4 q)
+{
+    return float4(q.x, -q.yzw);
+}
+
 float3 cross(float3 a, float3 b)
 {
     return float3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
@@ -26,6 +31,7 @@ float3 CameraUp;
 int Width;
 int Height;
 
+
 float SDF(float3 position)
 {
     float3 ballPos = float3(0, 0, 0);
@@ -34,7 +40,7 @@ float SDF(float3 position)
 
 float Julia_SDF(float3 position)
 {
-    int maxIterations = 50;
+    int maxIterations = 100;
     float4 z_n = float4(position, 0);
     float4 d_z_n = 1; // Derivative of z_n
     float z_n_squared = dot(z_n, z_n);
@@ -52,6 +58,42 @@ float Julia_SDF(float3 position)
     return sqrt(z_n_squared / d_z_n) * log(z_n_squared) * 0.5;
 }
 
+float3 Julia_Normal(float3 position)
+{
+    float4 z = float4(position, 0);
+
+    float4 J0 = float4(1, 0, 0, 0);
+    float4 J1 = float4(0, 1, 0, 0);
+    float4 J2 = float4(0, 0, 1, 0);
+
+    int numIterations = 100;
+    float4 cz;
+    for (int i = 0; i < numIterations; i++)
+    {
+        cz = qconj(z);
+
+        J0 = float4( dot(J0,cz), dot(J0.xy,z.yx), dot(J0.xz,z.zx), dot(J0.xw,z.wx) );
+        J1 = float4( dot(J1,cz), dot(J1.xy,z.yx), dot(J1.xz,z.zx), dot(J1.xw,z.wx) );
+        J2 = float4( dot(J2,cz), dot(J2.xy,z.yx), dot(J2.xz,z.zx), dot(J2.xw,z.wx) );
+
+        z = qmul(z, z) + C;
+
+        if (dot(z,z) > 4) break;
+
+    }
+
+    return normalize(float3(dot(J0, z), dot(J1, z), dot(J2, z)));
+}
+
+float3 Cut_Julia_Normal(float3 position)
+{
+    if (position.y > -0.01)
+    {
+        return float3(0, 1, 0);
+    }
+    return Julia_Normal(position);
+}
+
 float SDF_Plane(float3 position)
 {
     return position.y;
@@ -62,35 +104,41 @@ float Julia_cut(float3 position)
     return max(Julia_SDF(position), SDF_Plane(position));
 }
 
-float4 raymarch(float3 position, float3 direction)
+float4 raymarch(float3 position, float3 direction) // last parameter is the number of steps
 {
     float3 orgPos = position;
     int maxSteps = 100;
     float minDistance = 0.001;
-    float maxDistance = 10000.0;
-    float dist = Julia_cut(position);
+    float maxDistance = 20.0;
+    float dist = Julia_SDF(position);
+    int numSteps = 0;
     for (int i = 0; i < maxSteps; i++)
     {
+     
         position += dist * direction * 0.5;
-        dist = Julia_cut(position);
+        dist = Julia_SDF(position);
 
         if (dist < minDistance || dist > maxDistance)
         {
+            numSteps = i;
             break;
         }
     }
     if (dist <= minDistance)
     {
-        return float4(abs(position), 1);
+        return float4(position, float(numSteps)/float(maxSteps));
+        /*if (position.y > -0.01)
+        {
+            return float4(1,1,1,1) * 0.5;
+        }
+        return float4(abs(position), 1);*/
         //return length(orgPos -position) / 4;
     }
-    if (dist >= maxDistance)
-    {
-        return float4(0, 0, 0, 1);
-    }
-    return float4(0, 0, 0, 1);
-}
 
+    
+
+    return float4(0,0,0,float(numSteps)/float(maxSteps));
+}
 float3 rayDirection(float2 id)
 {
     CameraForward = normalize(CameraForward);
@@ -106,9 +154,45 @@ float3 rayDirection(float2 id)
     return rayDirection;
 }
 
+float4 render(float3 position, float2 id)
+{
+    float3 SunPosition = float3(0, 4, 0);
+    float4 result = float4(0, 0, 0, 1);
+    int AA = 1;
+    for (int i = 0; i < AA; i++)
+    {
+        for (int j = 0; j < AA; j++)
+        {
+            float3 direction = rayDirection(id + float2(i, j) / AA);
+            float4 raymarch_res = raymarch(position, direction);
+            position = raymarch_res.xyz;
+            
+            if (position.x == 0 && position.y == 0 && position.z == 0)
+            {
+                // skyqqqs
+                result += float4(raymarch_res.w, 0, 0, 1);
+                continue;
+            }
+            if (position.x == 1 && position.y == 0 && position.z == 0)
+            {
+                // sky
+                result += float4(1, 0, 0, 1);
+                continue;
+            }
+            float3 normal = Julia_Normal(position);
+            float3 lightDirection = normalize(SunPosition - position);
+            float lightIntensity = max(0.2, dot(normal, lightDirection));
+            result += float4(lightIntensity, lightIntensity, lightIntensity, 1);
+        }
+    }
+    return result / (AA * AA);
+}
+
+
+
 
 [numthreads(8,8,1)]
 void CSMain(uint3 id : SV_DispatchThreadID)
 {
-    Result[id.xy] =  raymarch(CameraPosition, rayDirection(id));
+    Result[id.xy] =  render(CameraPosition, id);
 }

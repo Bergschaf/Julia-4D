@@ -30,7 +30,8 @@ float3 CameraForward;
 float3 CameraUp;
 int Width;
 int Height;
-
+float3 SunPosition;
+float SunRadius; // fake
 
 float SDF(float3 position)
 {
@@ -156,7 +157,8 @@ float3 rayDirection(float2 id)
 
 float4 render(float3 position, float2 id)
 {
-    float3 SunPosition = float3(0, 4, 0);
+    float3 P = position;
+    float4 sunColor = float4(1,1,1,1);
     float4 result = float4(0, 0, 0, 1);
     int AA = 1;
     for (int i = 0; i < AA; i++)
@@ -166,23 +168,60 @@ float4 render(float3 position, float2 id)
             float3 direction = rayDirection(id + float2(i, j) / AA);
             float4 raymarch_res = raymarch(position, direction);
             position = raymarch_res.xyz;
+
+            // check if the direction intersects the sun
+            float t = -(dot(direction, P)) + dot(direction, SunPosition);
+            float closestsPos = P + t * direction;
+            float dist = length(SunPosition - closestsPos);
+            bool hitSun = false;
+            if (dist <= SunRadius){
+                hitSun = true;
+                // temp
+                result += sunColor;
+                continue;
+            }
+
             
             if (position.x == 0 && position.y == 0 && position.z == 0)
             {
+                if (hitSun){
+                    result += sunColor;
+                    continue;
+                }
                 // skyqqqs
-                result += float4(raymarch_res.w, 0, 0, 1);
+                result += float4(raymarch_res.w, raymarch_res.w, raymarch_res.w, 1);
                 continue;
             }
             if (position.x == 1 && position.y == 0 && position.z == 0)
             {
                 // sky
+                if (hitSun){
+                    result += sunColor;
+                    continue;
+                }
                 result += float4(1, 0, 0, 1);
                 continue;
             }
             float3 normal = Julia_Normal(position);
             float3 lightDirection = normalize(SunPosition - position);
-            float lightIntensity = max(0.2, dot(normal, lightDirection));
-            result += float4(lightIntensity, lightIntensity, lightIntensity, 1);
+            float lightIntensity = max(0.3, dot(normal, lightDirection));
+
+            if (hitSun){
+            if(length(P - closestsPos) < length(P - position)){
+                result += sunColor;
+                continue;
+            }}
+
+            // TODO shadow
+            float3 sun_to_point = normalize(position - SunPosition);
+            float3 shadow_res = raymarch(SunPosition, sun_to_point);
+            if(length(shadow_res - position) < 0.1) {
+            result += float4(lightIntensity * 1.2, lightIntensity * 1.2, lightIntensity * 0.3, 1);
+
+            }
+            else{
+                result += float4(lightIntensity * 0.8, lightIntensity, lightIntensity * 0.4, 1) * 0.5;
+            }
         }
     }
     return result / (AA * AA);

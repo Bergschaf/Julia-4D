@@ -8,6 +8,8 @@ public class Main : MonoBehaviour
     public ComputeShader juliaShader;
     public RenderTexture renderTexture;
     public Vector4 C;
+    public Vector3 SunPosition;
+    public float SunRadius;
 
     [System.Serializable]
     public struct CameraStruct
@@ -91,10 +93,10 @@ public class Main : MonoBehaviour
         juliaShader.SetFloats("CameraForward", new float[] { Camera.Forward.x, Camera.Forward.y, Camera.Forward.z });
         juliaShader.SetFloats("CameraUp", new float[] { Camera.Up.x, Camera.Up.y, Camera.Up.z });
         juliaShader.SetInt("Width", Camera.Width);
-        Debug.Log(Camera.Width);
         juliaShader.SetInt("Height", Camera.Height);
-        Debug.Log(Camera.Height);
-        
+        juliaShader.SetFloats("SunPosition", new float [] {SunPosition.x, SunPosition.y, SunPosition.z});
+        juliaShader.SetFloat("SunRadius", SunRadius);
+
         juliaShader.Dispatch(0, Camera.Width / 8, Camera.Height / 8, 1);
         Graphics.Blit(renderTexture, destination);
     }

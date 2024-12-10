@@ -324,6 +324,8 @@ MonoBehaviour:
   juliaShader: {fileID: 7200000, guid: 00ae0f96abfe43f3c9aa64e217e947b3, type: 3}
   renderTexture: {fileID: 0}
   C: {x: 0, y: 0, z: 0, w: 0}
+  SunPosition: {x: 0, y: 4, z: 0}
+  SunRadius: 1
   Camera:
     Position: {x: 4, y: 0, z: 0}
     Forward: {x: -1, y: 0, z: 0}
